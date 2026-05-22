@@ -8,12 +8,13 @@ from collections import defaultdict, deque
 
 from PySide6.QtWidgets import (
     QApplication, QLabel, QPushButton,
-    QVBoxLayout, QHBoxLayout, QWidget, QSizePolicy, QStackedWidget, QSpacerItem
+    QVBoxLayout, QHBoxLayout, QWidget, QSizePolicy, QStackedWidget, QSpacerItem,
+    QComboBox
 )
 import random
 from PySide6.QtGui import QImage, QPixmap, QPainter, QColor, QLinearGradient, QFont, QBrush, QPen
 from PySide6.QtCore import QTimer, Qt, QUrl, QPointF
-from PySide6.QtMultimedia import QSoundEffect
+from PySide6.QtMultimedia import QSoundEffect, QMediaDevices
 from PySide6.QtWidgets import QGraphicsDropShadowEffect
 
 # Path configuration
@@ -133,7 +134,8 @@ class JumpApp(QWidget):
         self.selecting_player = 1 # 1 or 2
 
         # Camera
-        self.cap = cv2.VideoCapture(0)
+        self.camera_index = 0
+        self.cap = cv2.VideoCapture(self.camera_index)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
@@ -151,10 +153,12 @@ class JumpApp(QWidget):
         self.menu_page = self.create_menu_page()
         self.selection_page = self.create_selection_page()
         self.game_page = self.create_game_page()
+        self.settings_page = self.create_settings_page()
 
         self.stacked_widget.addWidget(self.menu_page)
         self.stacked_widget.addWidget(self.selection_page)
         self.stacked_widget.addWidget(self.game_page)
+        self.stacked_widget.addWidget(self.settings_page)
 
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -210,6 +214,15 @@ class JumpApp(QWidget):
         btn_ai.setFixedSize(320, 70)
         btn_ai.setObjectName("modeBtn")
         btn_ai.clicked.connect(lambda: self.start_selection("AI"))
+
+        btn_settings = QPushButton("⚙️ Camera Settings")
+        btn_settings.setFixedSize(320, 70)
+        btn_settings.setObjectName("modeBtn")
+        btn_settings.setStyleSheet("""
+            QPushButton { background-color: #a8e6cf; border: 3px solid #8be3c4; }
+            QPushButton:hover { background-color: #8be3c4; border: 3px solid #75cfb0; }
+        """)
+        btn_settings.clicked.connect(self.open_settings)
         
         layout.addWidget(title)
         layout.addWidget(subtitle)
@@ -217,8 +230,14 @@ class JumpApp(QWidget):
         layout.addWidget(btn_pvp, 0, Qt.AlignHCenter)
         layout.addSpacing(20)
         layout.addWidget(btn_ai, 0, Qt.AlignHCenter)
+        layout.addSpacing(20)
+        layout.addWidget(btn_settings, 0, Qt.AlignHCenter)
         
         return page
+
+    def open_settings(self):
+        self.refresh_cameras()
+        self.stacked_widget.setCurrentWidget(self.settings_page)
 
     def create_selection_page(self):
         page = QWidget()
@@ -450,14 +469,147 @@ class JumpApp(QWidget):
         self.update_race()
         return page
 
-    def enter_game(self, mode):
-        self.game_mode = mode
-        self.reset()
-        self.stacked_widget.setCurrentWidget(self.game_page)
-        
     def exit_game(self):
         self.stop()
         self.stacked_widget.setCurrentWidget(self.menu_page)
+
+    def create_settings_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setContentsMargins(50, 40, 50, 40)
+        layout.setSpacing(20)
+
+        title = QLabel("📷 CAMERA SETTINGS")
+        title.setStyleSheet("font-size: 42px; font-weight: 900; color: #ff6b81; margin-bottom: 20px;")
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+
+        # Main Panel
+        panel = QWidget()
+        panel.setObjectName("selectionPanel")
+        panel.setMinimumWidth(800)
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(30, 30, 30, 30)
+        panel_layout.setSpacing(25)
+
+        # Camera selection row
+        select_layout = QHBoxLayout()
+        select_label = QLabel("Select Camera:")
+        select_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #4a4a4a;")
+        
+        self.camera_combo = QComboBox()
+        self.camera_combo.setMinimumHeight(45)
+        self.camera_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 16px;
+                padding: 5px 15px;
+                border: 3px solid #ffb6c1;
+                border-radius: 12px;
+                background-color: white;
+                color: #4a4a4a;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox QAbstractItemView {
+                border: 3px solid #ffb6c1;
+                selection-background-color: #ffb6c1;
+                selection-color: white;
+                background-color: white;
+                color: #4a4a4a;
+            }
+        """)
+        
+        self.camera_combo.currentIndexChanged.connect(self.change_camera)
+
+        select_layout.addWidget(select_label)
+        select_layout.addWidget(self.camera_combo, 1)
+        panel_layout.addLayout(select_layout)
+
+        # Settings Live Preview Label
+        self.settings_preview_label = QLabel()
+        self.settings_preview_label.setFixedSize(640, 360)
+        self.settings_preview_label.setObjectName("videoLabel")
+        self.settings_preview_label.setAlignment(Qt.AlignCenter)
+        self.settings_preview_label.setStyleSheet("background-color: #f0f0f0; border-radius: 15px; border: 4px dashed #87cefa;")
+        panel_layout.addWidget(self.settings_preview_label, 0, Qt.AlignCenter)
+
+        # Guide Text
+        guide_text = QLabel("💡 Tip: Make sure your full body is visible in the frame, especially your feet!")
+        guide_text.setStyleSheet("font-size: 16px; color: #747d8c; font-style: italic;")
+        guide_text.setAlignment(Qt.AlignCenter)
+        panel_layout.addWidget(guide_text)
+
+        layout.addWidget(panel)
+
+        # Back Button
+        btn_back = QPushButton("💾 SAVE & BACK")
+        btn_back.setObjectName("modeBtn")
+        btn_back.setFixedSize(240, 60)
+        btn_back.setStyleSheet("""
+            QPushButton { background-color: #a8e6cf; border: 3px solid #8be3c4; }
+            QPushButton:hover { background-color: #8be3c4; border: 3px solid #75cfb0; }
+        """)
+        btn_back.clicked.connect(self.back_to_menu)
+        layout.addWidget(btn_back, 0, Qt.AlignHCenter)
+
+        # Shadow for settings panel
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(255, 182, 193, 100))
+        shadow.setOffset(0, 5)
+        panel.setGraphicsEffect(shadow)
+
+        return page
+
+    def refresh_cameras(self):
+        self.camera_combo.blockSignals(True)
+        self.camera_combo.clear()
+        
+        devices = QMediaDevices.videoInputs()
+        if not devices:
+            self.camera_combo.addItem("No Camera Detected", 0)
+        else:
+            for i, dev in enumerate(devices):
+                description = dev.description()
+                if not description:
+                    description = f"Camera {i}"
+                self.camera_combo.addItem(description, i)
+                
+        # Set selection to current index
+        idx = self.camera_combo.findData(getattr(self, "camera_index", 0))
+        if idx != -1:
+            self.camera_combo.setCurrentIndex(idx)
+        else:
+            self.camera_combo.setCurrentIndex(0)
+            
+        self.camera_combo.blockSignals(False)
+
+    def change_camera(self, index):
+        cam_idx = self.camera_combo.itemData(index)
+        if cam_idx is None:
+            return
+        
+        # Save previous camera index in case the new one fails to open
+        prev_idx = getattr(self, "camera_index", 0)
+        if hasattr(self, "camera_index") and self.camera_index == cam_idx and self.cap is not None and self.cap.isOpened():
+            return
+            
+        self.camera_index = cam_idx
+        
+        # Re-initialize camera
+        if hasattr(self, "cap") and self.cap is not None:
+            self.cap.release()
+            
+        self.cap = cv2.VideoCapture(self.camera_index)
+        if not self.cap.isOpened():
+            print(f"Failed to open camera index {self.camera_index}, falling back to {prev_idx}")
+            self.camera_index = prev_idx
+            self.cap = cv2.VideoCapture(self.camera_index)
+            
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
     def apply_styles(self):
         self.setStyleSheet("""
@@ -675,6 +827,32 @@ class JumpApp(QWidget):
             return
 
         self.current_frame = frame.copy()
+
+        # If settings page is active, show raw preview with guidelines and return
+        if self.stacked_widget.currentWidget() == self.settings_page:
+            frame_preview = cv2.flip(frame, 1)
+            h_p, w_p, _ = frame_preview.shape
+            
+            # Guide lines (vertical pink lines, horizontal blue line)
+            cv2.line(frame_preview, (int(w_p * 0.25), 0), (int(w_p * 0.25), h_p), (255, 182, 193), 2, cv2.LINE_AA)
+            cv2.line(frame_preview, (int(w_p * 0.75), 0), (int(w_p * 0.75), h_p), (255, 182, 193), 2, cv2.LINE_AA)
+            cv2.line(frame_preview, (0, int(h_p * 0.7)), (w_p, int(h_p * 0.7)), (135, 206, 250), 2, cv2.LINE_AA)
+            
+            # Text on preview
+            cv2.putText(frame_preview, "ALIGN FEET BELOW THIS LINE", (20, int(h_p * 0.65)), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (135, 206, 250), 2, cv2.LINE_AA)
+            cv2.putText(frame_preview, "STAND IN THE MIDDLE", (int(w_p * 0.32), 40), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 182, 193), 2, cv2.LINE_AA)
+
+            rgb = cv2.cvtColor(frame_preview, cv2.COLOR_BGR2RGB)
+            img = QImage(rgb.data, w_p, h_p, 3*w_p, QImage.Format_RGB888)
+            self.settings_preview_label.setPixmap(QPixmap.fromImage(img).scaled(
+                self.settings_preview_label.width(), 
+                self.settings_preview_label.height(), 
+                Qt.KeepAspectRatio, 
+                Qt.SmoothTransformation
+            ))
+            return
 
         # Update animation indices for both players
         self.current_frame_idx += 1
